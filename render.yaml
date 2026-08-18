@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: sentinelx-soc
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./sentinelx.db
+      - key: ENVIRONMENT
+        value: production
