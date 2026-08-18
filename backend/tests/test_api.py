@@ -51,6 +51,28 @@ def test_login_success():
     assert "access_token" in data
     assert data["user"]["username"] == "admin"
 
+def test_change_password():
+    # 1. Login to obtain JWT
+    login_res = client.post("/api/auth/login", json={"username": "analyst", "password": "analyst123"})
+    token = login_res.json()["access_token"]
+
+    # 2. Change password
+    change_res = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "analyst123", "new_password": "newSecurePassword2026!"},
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert change_res.status_code == 200
+    assert change_res.json()["status"] == "success"
+
+    # 3. Verify old password fails
+    old_login = client.post("/api/auth/login", json={"username": "analyst", "password": "analyst123"})
+    assert old_login.status_code == 401
+
+    # 4. Verify new password succeeds
+    new_login = client.post("/api/auth/login", json={"username": "analyst", "password": "newSecurePassword2026!"})
+    assert new_login.status_code == 200
+
 def test_ingest_event_and_stats():
     payload = {
         "event_type": "LOGIN_FAILED",
