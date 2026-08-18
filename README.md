@@ -260,6 +260,10 @@ Before deploying to a public server:
 4. **PostgreSQL Migration**: Point `DATABASE_URL` to a PostgreSQL database and run `python scripts/migrate_db.py`.
 
 ---
+Congratulations! Your SentinelX SOC Dashboard is officially live on the internet!
+
+🔗 Live Application URL: https://sentinelx-soc-wg93.onrender.com/
+🐙 GitHub Repository: https://github.com/MayurHarde02/sentinelx-soc
 
 ## 📄 License
 
