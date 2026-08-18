@@ -4,6 +4,7 @@
 
 **A high-performance, lightweight SOC & SIEM platform engineered for real-time cyber threat detection, log analysis, alert triage, incident response, and security telemetry visualization.**
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://sentinelx-soc-wg93.onrender.com/)
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org)
@@ -11,7 +12,8 @@
 [![SQLite](https://img.shields.io/badge/SQLite%20%2F%20PostgreSQL-Supported-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://sqlite.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
 
-[Live Architecture](#-system-architecture) • [Key Capabilities](#-key-capabilities) • [Quickstart Guide](#-quickstart-guide) • [Detection Rules](#-threat-detection-heuristics) • [API Reference](#-api-endpoints)
+[🌐 **Live Demo Dashboard**](https://sentinelx-soc-wg93.onrender.com/) • [Live Architecture](#-system-architecture) • [Key Capabilities](#-key-capabilities) • [Quickstart Guide](#-quickstart-guide) • [Detection Rules](#-threat-detection-heuristics) • [API Reference](#-api-endpoints)
+
 
 </div>
 
