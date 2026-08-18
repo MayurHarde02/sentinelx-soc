@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  sentinelx:
+    build: .
+    container_name: sentinelx_soc
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=change-this-to-a-very-secure-random-key-in-production
+      - DATABASE_URL=sqlite:///./sentinelx.db
+    volumes:
+      - sentinelx_data:/app/backend
+    restart: unless-stopped
+
+volumes:
+  sentinelx_data:
