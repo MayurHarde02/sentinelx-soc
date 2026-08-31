@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from './context/AuthContext';
+import { WebSocketProvider } from './context/WebSocketContext';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import DashboardOverview from './pages/DashboardOverview';
@@ -7,9 +8,11 @@ import LiveLogsView from './pages/LiveLogsView';
 import AlertsView from './pages/AlertsView';
 import IncidentsView from './pages/IncidentsView';
 import IpIntelligenceView from './pages/IpIntelligenceView';
+import ThreatIntelView from './pages/ThreatIntelView';
 import AttackSimulatorView from './pages/AttackSimulatorView';
 import DetectionRulesView from './pages/DetectionRulesView';
 import ReportsView from './pages/ReportsView';
+import AuditLogsView from './pages/AuditLogsView';
 import LoginView from './pages/LoginView';
 import QuickAlertModal from './components/QuickAlertModal';
 import CreateIncidentModal from './components/CreateIncidentModal';
@@ -17,10 +20,10 @@ import ManualLogModal from './components/ManualLogModal';
 import ChangePasswordModal from './components/ChangePasswordModal';
 import api from './api/client';
 
-function App() {
+function AppContent() {
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
-  
+
   // Modals state
   const [selectedAlertForModal, setSelectedAlertForModal] = useState(null);
   const [alertToEscalate, setAlertToEscalate] = useState(null);
@@ -146,6 +149,10 @@ function App() {
             <IpIntelligenceView key={refreshKey} />
           )}
 
+          {activeTab === 'threat_intel' && (
+            <ThreatIntelView key={refreshKey} />
+          )}
+
           {activeTab === 'simulator' && (
             <AttackSimulatorView
               onSimulationTriggered={handleRefreshAll}
@@ -158,6 +165,10 @@ function App() {
 
           {activeTab === 'reports' && (
             <ReportsView key={refreshKey} />
+          )}
+
+          {activeTab === 'audit' && (
+            <AuditLogsView key={refreshKey} />
           )}
         </main>
       </div>
@@ -195,6 +206,14 @@ function App() {
         onClose={() => setIsChangePasswordModalOpen(false)}
       />
     </div>
+  );
+}
+
+function App() {
+  return (
+    <WebSocketProvider>
+      <AppContent />
+    </WebSocketProvider>
   );
 }
 

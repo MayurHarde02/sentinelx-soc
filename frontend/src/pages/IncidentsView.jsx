@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Plus, MessageSquare, CheckCircle, Clock, User, AlertTriangle, Send } from 'lucide-react';
+import { ShieldAlert, Plus, MessageSquare, CheckCircle, Clock, User, AlertTriangle, Send, GitBranch } from 'lucide-react';
 import api from '../api/client';
 import SeverityBadge from '../components/SeverityBadge';
 import StatusBadge from '../components/StatusBadge';
+import InvestigationTimeline from '../components/InvestigationTimeline';
 import { useAuth } from '../context/AuthContext';
 
 const IncidentsView = ({ onOpenCreateIncident }) => {
@@ -12,13 +13,13 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
   const [noteText, setNoteText] = useState('');
   const [resolutionText, setResolutionText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('timeline');
 
   const fetchIncidents = async () => {
     try {
       const res = await api.get('/incidents?limit=100');
       setIncidents(res.data);
       if (selectedIncident) {
-        // Update selected incident if already open
         const updated = res.data.find(i => i.id === selectedIncident.id);
         if (updated) setSelectedIncident(updated);
       } else if (res.data.length > 0) {
@@ -39,6 +40,7 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
     try {
       const res = await api.get(`/incidents/${inc.id}`);
       setSelectedIncident(res.data);
+      setActiveWorkspaceTab('timeline');
     } catch (e) {
       setSelectedIncident(inc);
     }
@@ -52,7 +54,6 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
         note: noteText.trim()
       });
       setNoteText('');
-      // Refresh selected incident
       const res = await api.get(`/incidents/${selectedIncident.id}`);
       setSelectedIncident(res.data);
       fetchIncidents();
@@ -77,6 +78,12 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
     }
   };
 
+  const workspaceTabs = [
+    { id: 'timeline', label: '🔍 Timeline' },
+    { id: 'alerts', label: '⚡ Alerts' },
+    { id: 'notes', label: '📝 Notes' },
+  ];
+
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Header */}
@@ -87,7 +94,7 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
             <span>Incident Response & Investigation</span>
           </h2>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Track security incidents, correlate triggered alerts, log analyst findings, and resolve threats
+            Track incidents, investigate forensic timelines, log findings, and resolve threats
           </p>
         </div>
         <button onClick={onOpenCreateIncident} className="btn btn-primary btn-sm">
@@ -96,10 +103,10 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
         </button>
       </div>
 
-      {/* Two-Pane Workspace Layout: Left Incident List, Right Detailed Workspace */}
+      {/* Two-Pane Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.25rem', alignItems: 'start' }}>
-        {/* Left Column: Incidents List */}
-        <div className="soc-card" style={{ padding: '0.75rem', maxHeight: '720px', overflowY: 'auto' }}>
+        {/* Left: Incident List */}
+        <div className="soc-card" style={{ padding: '0.75rem', maxHeight: '760px', overflowY: 'auto' }}>
           <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', padding: '0.5rem', borderBottom: '1px solid var(--border-subtle)' }}>
             Active Incident Queue ({incidents.length})
           </div>
@@ -107,7 +114,7 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
             {incidents.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem 1rem', fontSize: '0.8rem' }}>
-                No incidents created yet. Escalate an alert or click "New Incident".
+                No incidents yet. Escalate an alert or click "New Incident".
               </div>
             ) : (
               incidents.map((inc) => {
@@ -146,9 +153,9 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
           </div>
         </div>
 
-        {/* Right Column: Incident Workspace */}
+        {/* Right: Incident Workspace */}
         {selectedIncident ? (
-          <div className="soc-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="soc-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Header / Title Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1rem' }}>
               <div>
@@ -157,13 +164,11 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
                   <SeverityBadge severity={selectedIncident.severity} />
                   <StatusBadge status={selectedIncident.status} />
                 </div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>{selectedIncident.title}</h3>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>{selectedIncident.title}</h3>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>
                   Created {new Date(selectedIncident.created_at).toLocaleString()} • Assigned to <strong>{selectedIncident.assigned_to || 'Unassigned'}</strong>
                 </div>
               </div>
-
-              {/* Status transition dropdown */}
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Status:</span>
                 <select
@@ -180,87 +185,127 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
               </div>
             </div>
 
-            {/* Description & Scope */}
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
-                Incident Scope & Description
-              </div>
-              <div style={{ background: 'var(--bg-main)', padding: '0.85rem', borderRadius: '6px', fontSize: '0.85rem', border: '1px solid var(--border-subtle)', lineHeight: 1.5 }}>
-                {selectedIncident.description || 'No description provided.'}
-              </div>
+            {/* Workspace Tab Bar */}
+            <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0' }}>
+              {workspaceTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveWorkspaceTab(tab.id)}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeWorkspaceTab === tab.id ? '2px solid var(--color-primary)' : '2px solid transparent',
+                    color: activeWorkspaceTab === tab.id ? 'var(--color-primary)' : 'var(--text-dim)',
+                    fontWeight: activeWorkspaceTab === tab.id ? 600 : 400,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            {/* Linked Alerts Evidence */}
-            {selectedIncident.alerts && selectedIncident.alerts.length > 0 && (
+            {/* Tab Content */}
+            {activeWorkspaceTab === 'timeline' && (
               <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                  Correlated Alerts Evidence ({selectedIncident.alerts.length})
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  {selectedIncident.alerts.map(al => (
-                    <div
-                      key={al.id}
-                      style={{
-                        background: 'var(--bg-surface-raised)',
-                        padding: '0.65rem 0.85rem',
-                        borderRadius: '6px',
-                        border: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{al.alert_type} • <span className="font-mono" style={{ color: 'var(--color-primary)' }}>{al.source_ip}</span></div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>{al.description}</div>
-                      </div>
-                      <SeverityBadge severity={al.severity} />
-                    </div>
-                  ))}
+                <InvestigationTimeline incident={selectedIncident} />
+                {/* Add Note (always available in timeline) */}
+                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
+                  <form onSubmit={handleAddNote} style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input
+                      type="text"
+                      className="soc-input"
+                      style={{ flex: 1 }}
+                      placeholder="Log analyst observation / IP block action / containment note..."
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      <Send size={14} />
+                      <span>Log Note</span>
+                    </button>
+                  </form>
                 </div>
               </div>
             )}
 
-            {/* Analyst Investigation Journal / Notes */}
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                Analyst Investigation Notes ({selectedIncident.notes?.length || 0})
-              </div>
-
-              <div style={{ background: 'var(--bg-main)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-subtle)', maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                {(!selectedIncident.notes || selectedIncident.notes.length === 0) ? (
-                  <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem 0' }}>
-                    No investigation notes recorded yet.
-                  </div>
+            {activeWorkspaceTab === 'alerts' && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                  Correlated Alerts Evidence ({selectedIncident.alerts?.length || 0})
+                </div>
+                {(!selectedIncident.alerts || selectedIncident.alerts.length === 0) ? (
+                  <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', padding: '1rem 0' }}>No linked alerts.</div>
                 ) : (
-                  selectedIncident.notes.map(note => (
-                    <div key={note.id} style={{ background: 'var(--bg-surface)', padding: '0.6rem', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-dim)', marginBottom: '0.2rem' }}>
-                        <span style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{note.author}</span>
-                        <span>{new Date(note.created_at).toLocaleTimeString()}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    {selectedIncident.alerts.map(al => (
+                      <div
+                        key={al.id}
+                        style={{
+                          background: 'var(--bg-surface-raised)',
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>
+                            {al.alert_type} • <span className="font-mono" style={{ color: 'var(--color-primary)' }}>{al.source_ip}</span>
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>{al.description}</div>
+                        </div>
+                        <SeverityBadge severity={al.severity} />
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>{note.note}</div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
+            )}
 
-              {/* Add Note Form */}
-              <form onSubmit={handleAddNote} style={{ display: 'flex', gap: '0.5rem' }}>
-                <input
-                  type="text"
-                  className="soc-input"
-                  style={{ flex: 1 }}
-                  placeholder="Add analyst observation / IP block action / containment note..."
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                />
-                <button type="submit" className="btn btn-primary btn-sm">
-                  <Send size={14} />
-                  <span>Log Note</span>
-                </button>
-              </form>
-            </div>
+            {activeWorkspaceTab === 'notes' && (
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                  Analyst Investigation Notes ({selectedIncident.notes?.length || 0})
+                </div>
+                <div style={{ background: 'var(--bg-main)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-subtle)', maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  {(!selectedIncident.notes || selectedIncident.notes.length === 0) ? (
+                    <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', textAlign: 'center', padding: '1rem 0' }}>
+                      No investigation notes recorded yet.
+                    </div>
+                  ) : (
+                    selectedIncident.notes.map(note => (
+                      <div key={note.id} style={{ background: 'var(--bg-surface)', padding: '0.6rem', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-dim)', marginBottom: '0.2rem' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{note.author}</span>
+                          <span>{new Date(note.created_at).toLocaleTimeString()}</span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>{note.note}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <form onSubmit={handleAddNote} style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    className="soc-input"
+                    style={{ flex: 1 }}
+                    placeholder="Add analyst observation..."
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm">
+                    <Send size={14} />
+                    <span>Log Note</span>
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         ) : (
           <div className="soc-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: 'var(--text-dim)' }}>

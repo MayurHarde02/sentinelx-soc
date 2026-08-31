@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from app.config import settings
-from app.models import Base, DetectionRule, User
+from app.models import Base, DetectionRule, User, ThreatFeedItem
 
 # Configure engine for either SQLite or PostgreSQL
 if "sqlite" in settings.DATABASE_URL:
@@ -30,12 +30,12 @@ def get_db():
         db.close()
 
 def init_db():
-    """Create tables and seed initial detection rules and users."""
+    """Create tables and seed initial detection rules, users, and threat feed blocklist."""
     Base.metadata.create_all(bind=engine)
     
     db: Session = SessionLocal()
     try:
-        # Seed default detection rules if not present
+        # Seed default detection rules with MITRE ATT&CK taxonomy
         default_rules = [
             {
                 "name": "Brute Force Detection",
@@ -44,7 +44,10 @@ def init_db():
                 "severity": "HIGH",
                 "threshold": settings.BRUTE_FORCE_THRESHOLD,
                 "window_minutes": settings.BRUTE_FORCE_WINDOW_MINUTES,
-                "is_enabled": True
+                "is_enabled": True,
+                "mitre_tactic": "Credential Access",
+                "mitre_technique_id": "T1110",
+                "mitre_technique_name": "Brute Force"
             },
             {
                 "name": "Port Scan Detection",
@@ -53,7 +56,10 @@ def init_db():
                 "severity": "HIGH",
                 "threshold": settings.PORT_SCAN_THRESHOLD,
                 "window_minutes": settings.PORT_SCAN_WINDOW_MINUTES,
-                "is_enabled": True
+                "is_enabled": True,
+                "mitre_tactic": "Reconnaissance",
+                "mitre_technique_id": "T1046",
+                "mitre_technique_name": "Network Service Discovery"
             },
             {
                 "name": "Suspicious Login Sequence",
@@ -62,7 +68,10 @@ def init_db():
                 "severity": "HIGH",
                 "threshold": settings.SUSPICIOUS_LOGIN_FAIL_THRESHOLD,
                 "window_minutes": settings.SUSPICIOUS_LOGIN_WINDOW_MINUTES,
-                "is_enabled": True
+                "is_enabled": True,
+                "mitre_tactic": "Initial Access",
+                "mitre_technique_id": "T1078",
+                "mitre_technique_name": "Valid Accounts"
             },
             {
                 "name": "High-Frequency Event Flood",
@@ -71,7 +80,34 @@ def init_db():
                 "severity": "MEDIUM",
                 "threshold": settings.EVENT_FLOOD_THRESHOLD,
                 "window_minutes": settings.EVENT_FLOOD_WINDOW_MINUTES,
-                "is_enabled": True
+                "is_enabled": True,
+                "mitre_tactic": "Impact",
+                "mitre_technique_id": "T1498",
+                "mitre_technique_name": "Network Denial of Service"
+            },
+            {
+                "name": "Machine Learning Anomaly Detector",
+                "code": "RULE_ML_ANOMALY",
+                "description": "Isolation Forest multi-dimensional statistical traffic velocity anomaly detector.",
+                "severity": "HIGH",
+                "threshold": 1,
+                "window_minutes": 2,
+                "is_enabled": True,
+                "mitre_tactic": "Execution",
+                "mitre_technique_id": "T1059",
+                "mitre_technique_name": "Command and Scripting Interpreter"
+            },
+            {
+                "name": "Known Threat Feed Blocklist Match",
+                "code": "RULE_KNOWN_MALICIOUS_IP",
+                "description": "Detects any traffic originating from or targeting an IP on the active Threat Intelligence Blocklist.",
+                "severity": "CRITICAL",
+                "threshold": 1,
+                "window_minutes": 1,
+                "is_enabled": True,
+                "mitre_tactic": "Command and Control",
+                "mitre_technique_id": "T1071",
+                "mitre_technique_name": "Application Layer Protocol"
             }
         ]
 
@@ -80,8 +116,45 @@ def init_db():
             if not existing:
                 rule = DetectionRule(**r_data)
                 db.add(rule)
+            else:
+                # Update existing rule with MITRE metadata if missing
+                if not existing.mitre_technique_id:
+                    existing.mitre_tactic = r_data["mitre_tactic"]
+                    existing.mitre_technique_id = r_data["mitre_technique_id"]
+                    existing.mitre_technique_name = r_data["mitre_technique_name"]
 
-        # Seed users if not present
+        # Seed initial Threat Feed Blocklist items
+        default_blocklist = [
+            {
+                "ip_or_cidr": "185.220.101.5",
+                "feed_name": "Emerging Threats / Tor Exit List",
+                "threat_category": "TOR_EXIT",
+                "severity": "CRITICAL",
+                "description": "Active Tor exit relay associated with automated credential stuffing campaigns."
+            },
+            {
+                "ip_or_cidr": "45.33.32.156",
+                "feed_name": "AlienVault OTX C2 Feed",
+                "threat_category": "C2_BOTNET",
+                "severity": "HIGH",
+                "description": "Identified Cobalt Strike Command and Control listener endpoint."
+            },
+            {
+                "ip_or_cidr": "198.51.100.42",
+                "feed_name": "AbuseIPDB Top Attackers",
+                "threat_category": "EXPLOIT_SOURCE",
+                "severity": "HIGH",
+                "description": "High-volume SSH and web vulnerability brute force scanning host."
+            }
+        ]
+
+        for b_data in default_blocklist:
+            existing_feed = db.query(ThreatFeedItem).filter(ThreatFeedItem.ip_or_cidr == b_data["ip_or_cidr"]).first()
+            if not existing_feed:
+                feed_item = ThreatFeedItem(**b_data)
+                db.add(feed_item)
+
+        # Seed default users if not present
         from app.auth import get_password_hash
         admin_user = db.query(User).filter(User.username == settings.ADMIN_USERNAME).first()
         if not admin_user:

@@ -39,25 +39,28 @@ def get_live_stream_status():
 
 @router.post("/seed-demo", response_model=Dict[str, Any])
 def seed_demo_data(db: Session = Depends(get_db)):
-    """Seed comprehensive initial telemetry with realistic attacks and normal logs."""
+    """Seed comprehensive baseline telemetry with realistic attacks, ML anomalies, and normal traffic."""
     simulator = AttackSimulator(db)
     
     # 1. Normal traffic baseline
     simulator.trigger_scenario("benign", intensity=3)
     
     # 2. Brute force attack wave
-    res_bf = simulator.trigger_scenario("brute_force", target_ip="192.168.1.22", intensity=1)
+    simulator.trigger_scenario("brute_force", target_ip="192.168.1.22", intensity=1)
     
     # 3. Port scan attack wave
-    res_ps = simulator.trigger_scenario("port_scan", target_ip="198.51.100.42", intensity=1)
+    simulator.trigger_scenario("port_scan", target_ip="198.51.100.42", intensity=1)
     
     # 4. Suspicious login sequence
-    res_sl = simulator.trigger_scenario("suspicious_login", target_ip="185.220.101.5", intensity=1)
+    simulator.trigger_scenario("suspicious_login", target_ip="185.220.101.5", intensity=1)
     
-    # 5. Additional benign traffic
+    # 5. ML Anomaly burst
+    simulator.trigger_scenario("anomaly", target_ip="194.26.29.112", intensity=1)
+
+    # 6. Additional benign traffic
     simulator.trigger_scenario("benign", intensity=2)
 
     return {
         "status": "success",
-        "message": "Successfully seeded demo dataset with simulated attacks and baseline network traffic."
+        "message": "Successfully seeded demo dataset with simulated attacks, ML anomalies, and baseline network traffic."
     }

@@ -1,11 +1,13 @@
 import os
+os.environ["TESTING"] = "1"
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import get_db, init_db
-from app.models import Base
+from app.models import Base, User
+from app.auth import get_password_hash
 import app.database as db_mod
 import app.simulator as sim_mod
 
@@ -52,26 +54,35 @@ def test_login_success():
     assert data["user"]["username"] == "admin"
 
 def test_change_password():
-    # 1. Login to obtain JWT
-    login_res = client.post("/api/auth/login", json={"username": "analyst", "password": "analyst123"})
+    # 1. Login with seeded admin account
+    login_res = client.post("/api/auth/login", json={"username": "admin", "password": "sentinelx123"})
+    assert login_res.status_code == 200
     token = login_res.json()["access_token"]
 
     # 2. Change password
     change_res = client.post(
         "/api/auth/change-password",
-        json={"current_password": "analyst123", "new_password": "newSecurePassword2026!"},
+        json={"current_password": "sentinelx123", "new_password": "newSecureAdminPassword2026!"},
         headers={"Authorization": f"Bearer {token}"}
     )
     assert change_res.status_code == 200
     assert change_res.json()["status"] == "success"
 
     # 3. Verify old password fails
-    old_login = client.post("/api/auth/login", json={"username": "analyst", "password": "analyst123"})
+    old_login = client.post("/api/auth/login", json={"username": "admin", "password": "sentinelx123"})
     assert old_login.status_code == 401
 
     # 4. Verify new password succeeds
-    new_login = client.post("/api/auth/login", json={"username": "analyst", "password": "newSecurePassword2026!"})
+    new_login = client.post("/api/auth/login", json={"username": "admin", "password": "newSecureAdminPassword2026!"})
     assert new_login.status_code == 200
+
+    # 5. Reset password back for any subsequent tests
+    token2 = new_login.json()["access_token"]
+    client.post(
+        "/api/auth/change-password",
+        json={"current_password": "newSecureAdminPassword2026!", "new_password": "sentinelx123"},
+        headers={"Authorization": f"Bearer {token2}"}
+    )
 
 def test_ingest_event_and_stats():
     payload = {

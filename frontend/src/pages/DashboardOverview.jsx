@@ -9,7 +9,8 @@ import {
   ArrowUpRight,
   TrendingUp,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Wifi
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -29,6 +30,7 @@ import api from '../api/client';
 import StatCard from '../components/StatCard';
 import SeverityBadge from '../components/SeverityBadge';
 import StatusBadge from '../components/StatusBadge';
+import { useWebSocket } from '../context/WebSocketContext';
 
 ChartJS.register(
   CategoryScale,
@@ -43,6 +45,16 @@ ChartJS.register(
   Filler
 );
 
+const MITRE_COLORS = {
+  'Credential Access': '#ef4444',
+  'Reconnaissance':    '#f59e0b',
+  'Persistence':       '#8b5cf6',
+  'Impact':            '#dc2626',
+  'Command and Control': '#06b6d4',
+  'Execution':         '#10b981',
+  'Defense Evasion':   '#64748b',
+};
+
 const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
   const [eventStats, setEventStats] = useState(null);
   const [alertStats, setAlertStats] = useState(null);
@@ -50,6 +62,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
   const [topIps, setTopIps] = useState([]);
   const [incidentCount, setIncidentCount] = useState({ active: 0, resolved: 0 });
   const [loading, setLoading] = useState(true);
+  const { isConnected, newAlertCount, clearNewAlerts } = useWebSocket();
 
   const fetchOverviewData = async () => {
     try {
@@ -78,11 +91,18 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
 
   useEffect(() => {
     fetchOverviewData();
-    const interval = setInterval(fetchOverviewData, 5000); // 5s telemetry auto-refresh
+    const interval = setInterval(fetchOverviewData, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // Prepare Event Activity Timeline Chart Data
+  // Refresh when new alerts arrive via WebSocket
+  useEffect(() => {
+    if (newAlertCount > 0) {
+      fetchOverviewData();
+    }
+  }, [newAlertCount]);
+
+  // Activity chart
   const timeLabels = eventStats?.events_per_minute?.map(p => p.time.split(' ')[1] || p.time) || ['00:00', '00:05', '00:10', '00:15'];
   const eventDataPoints = eventStats?.events_per_minute?.map(p => p.count) || [0, 0, 0, 0];
 
@@ -128,7 +148,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
     }
   };
 
-  // Severity Distribution Doughnut Chart
+  // Severity Doughnut
   const sevDist = alertStats?.severity_distribution || {};
   const doughnutData = {
     labels: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
@@ -146,8 +166,78 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
     ]
   };
 
+  // MITRE ATT&CK tactic distribution bar chart
+  const mitreDist = alertStats?.mitre_tactics_distribution || {};
+  const mitreLabels = Object.keys(mitreDist);
+  const mitreValues = Object.values(mitreDist);
+  const mitreBarData = {
+    labels: mitreLabels,
+    datasets: [
+      {
+        label: 'Alerts',
+        data: mitreValues,
+        backgroundColor: mitreLabels.map(l => MITRE_COLORS[l] || '#475569'),
+        borderRadius: 4,
+        borderWidth: 0
+      }
+    ]
+  };
+
+  const barOptions = {
+    ...chartOptions,
+    plugins: {
+      ...chartOptions.plugins,
+      legend: { display: false }
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 35 }
+      },
+      y: {
+        grid: { color: '#1f2a3c' },
+        ticks: { color: '#6b7280', font: { size: 10 }, beginAtZero: true, precision: 0 }
+      }
+    }
+  };
+
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+      {/* Live WS Status + new alert banner */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: isConnected ? '#10b981' : '#6b7280',
+            boxShadow: isConnected ? '0 0 6px #10b981' : 'none'
+          }} />
+          <span style={{ fontSize: '0.72rem', color: isConnected ? '#10b981' : 'var(--text-dim)', fontWeight: 600 }}>
+            {isConnected ? 'WS: LIVE' : 'WS: OFFLINE'}
+          </span>
+        </div>
+        {newAlertCount > 0 && (
+          <div
+            style={{
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '6px',
+              padding: '0.3rem 0.75rem',
+              fontSize: '0.78rem',
+              color: '#f87171',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem'
+            }}
+            onClick={() => { clearNewAlerts(); fetchOverviewData(); }}
+          >
+            <span style={{ fontWeight: 700 }}>{newAlertCount} new alert{newAlertCount > 1 ? 's' : ''}</span>
+            <span style={{ color: 'var(--text-dim)' }}>— click to refresh</span>
+          </div>
+        )}
+      </div>
+
       {/* Metric Cards Banner */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
         <StatCard
@@ -189,7 +279,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
 
       {/* Main Visuals Row: Activity Graph + Severity Breakdown */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>
-        {/* Event Ingestion Velocity Line Chart */}
+        {/* Event Ingestion Velocity */}
         <div className="soc-card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="soc-card-header">
             <div className="soc-card-title">
@@ -212,7 +302,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
             </div>
           </div>
           <div style={{ height: '170px', position: 'relative', display: 'flex', justifyContent: 'center' }}>
-            {alertStats?.total_alerts === 0 ? (
+            {(alertStats?.total_alerts || 0) === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
                 No active alerts
               </div>
@@ -236,6 +326,24 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
         </div>
       </div>
 
+      {/* MITRE ATT&CK Tactic Distribution */}
+      {mitreLabels.length > 0 && (
+        <div className="soc-card">
+          <div className="soc-card-header">
+            <div className="soc-card-title">
+              <ShieldCheck size={16} color="#8b5cf6" />
+              <span>MITRE ATT&amp;CK Tactic Distribution</span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'monospace' }}>
+              enterprise-attack v14
+            </span>
+          </div>
+          <div style={{ height: '160px', width: '100%', marginTop: '0.5rem' }}>
+            <Bar data={mitreBarData} options={barOptions} />
+          </div>
+        </div>
+      )}
+
       {/* Second Row: Top Suspicious IPs & Quick Alerts Triage Table */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.25rem' }}>
         {/* Top Suspicious IPs Card */}
@@ -257,7 +365,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {topIps.length === 0 ? (
               <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', padding: '1rem 0' }}>
-                No IP telemetry collected yet. Use "Seed Attacks" to populate data.
+                No IP telemetry yet. Use "Seed Attacks" to populate data.
               </div>
             ) : (
               topIps.map((actor) => (
@@ -327,6 +435,7 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
                   <th>Alert Type</th>
                   <th>Source IP</th>
                   <th>Severity</th>
+                  <th>MITRE</th>
                   <th>Status</th>
                   <th>Action</th>
                 </tr>
@@ -334,8 +443,8 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
               <tbody>
                 {recentAlerts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem' }}>
-                      No alerts triggered yet. Launch an attack in Attack Simulator or click "Seed Attacks".
+                    <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '2rem' }}>
+                      No alerts triggered yet. Launch an attack in Attack Simulator.
                     </td>
                   </tr>
                 ) : (
@@ -347,13 +456,25 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
                       <td style={{ fontWeight: 600 }}>{al.alert_type}</td>
                       <td className="font-mono" style={{ color: 'var(--color-primary)' }}>{al.source_ip}</td>
                       <td><SeverityBadge severity={al.severity} /></td>
+                      <td>
+                        {al.mitre_technique_id ? (
+                          <span style={{
+                            fontFamily: 'monospace',
+                            fontSize: '0.7rem',
+                            background: 'rgba(6,182,212,0.1)',
+                            color: '#06b6d4',
+                            border: '1px solid rgba(6,182,212,0.25)',
+                            borderRadius: '3px',
+                            padding: '0.1rem 0.35rem'
+                          }}>
+                            {al.mitre_technique_id}
+                          </span>
+                        ) : <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem' }}>—</span>}
+                      </td>
                       <td><StatusBadge status={al.status} /></td>
                       <td>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenAlert(al);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); onOpenAlert(al); }}
                           className="btn btn-sm"
                           style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
                         >

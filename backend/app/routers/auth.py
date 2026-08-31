@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
@@ -14,13 +13,27 @@ from app.auth import (
     require_admin
 )
 from app.config import settings
+from app.rate_limiter import rate_limiter
+from app.audit import audit_logger
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/login", response_model=Token)
-def login_json(payload: LoginRequest, db: Session = Depends(get_db)):
+def login_json(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    # Rate limit login attempts: max 8 attempts / minute per IP
+    rate_limiter.check_rate_limit(request, key_prefix="login_auth", max_tokens=8, refill_rate_per_sec=0.15)
+
     user = db.query(User).filter(User.username == payload.username).first()
+    client_ip = request.client.host if request.client else "127.0.0.1"
+
     if not user or not verify_password(payload.password, user.password_hash):
+        audit_logger.log(
+            db=db,
+            actor_username=payload.username or "anonymous",
+            action_type="LOGIN_FAILED",
+            details=f"Failed login attempt for username '{payload.username}'",
+            ip_address=client_ip
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -34,6 +47,15 @@ def login_json(payload: LoginRequest, db: Session = Depends(get_db)):
         data={"sub": user.username, "role": user.role},
         expires_delta=access_token_expires
     )
+
+    audit_logger.log(
+        db=db,
+        actor_username=user.username,
+        action_type="LOGIN_SUCCESS",
+        details=f"Successful SOC authentication as role '{user.role}'",
+        ip_address=client_ip
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -47,6 +69,7 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)):
 @router.post("/change-password", response_model=Dict[str, Any])
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -58,11 +81,21 @@ def change_password(
 
     current_user.password_hash = get_password_hash(payload.new_password)
     db.commit()
+
+    audit_logger.log(
+        db=db,
+        actor_username=current_user.username,
+        action_type="PASSWORD_CHANGE",
+        details="User password updated successfully",
+        ip_address=request.client.host if request.client else "127.0.0.1"
+    )
+
     return {"status": "success", "message": "Password changed successfully"}
 
 @router.post("/register", response_model=UserResponse)
 def register_user(
     user_in: UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -80,4 +113,15 @@ def register_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    audit_logger.log(
+        db=db,
+        actor_username=current_user.username,
+        action_type="USER_REGISTER",
+        entity_type="User",
+        entity_id=str(new_user.id),
+        details=f"Admin registered new user '{new_user.username}' with role '{new_user.role}'",
+        ip_address=request.client.host if request.client else "127.0.0.1"
+    )
+
     return new_user

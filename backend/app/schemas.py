@@ -34,7 +34,6 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, description="New password must be at least 6 characters")
 
 
-
 # --- Security Event Schemas ---
 class SecurityEventBase(BaseModel):
     timestamp: Optional[datetime] = None
@@ -76,6 +75,9 @@ class AlertBase(BaseModel):
     description: str
     rule: str
     status: str = "Open"
+    mitre_tactic: Optional[str] = "Impact"
+    mitre_technique_id: Optional[str] = "T1498"
+    mitre_technique_name: Optional[str] = "Network Denial of Service"
     details_json: Optional[str] = None
 
 class AlertCreate(AlertBase):
@@ -102,6 +104,7 @@ class AlertStatsResponse(BaseModel):
     resolved_alerts: int
     severity_distribution: Dict[str, int]
     alert_types_distribution: Dict[str, int]
+    mitre_tactics_distribution: Dict[str, int] = {}
 
 
 # --- Incident Schemas ---
@@ -157,6 +160,26 @@ class DetectionRuleBase(BaseModel):
     threshold: int
     window_minutes: int
     is_enabled: bool
+    is_custom: bool = False
+    event_type_filter: Optional[str] = None
+    status_filter: Optional[str] = None
+    mitre_tactic: Optional[str] = "Credential Access"
+    mitre_technique_id: Optional[str] = "T1110"
+    mitre_technique_name: Optional[str] = "Brute Force"
+
+class DetectionRuleCreate(BaseModel):
+    name: str
+    code: str
+    description: str
+    severity: str = "HIGH"
+    threshold: int = 5
+    window_minutes: int = 5
+    is_enabled: bool = True
+    event_type_filter: Optional[str] = "LOGIN_FAILED"
+    status_filter: Optional[str] = "FAILURE"
+    mitre_tactic: Optional[str] = "Initial Access"
+    mitre_technique_id: Optional[str] = "T1078"
+    mitre_technique_name: Optional[str] = "Valid Accounts"
 
 class DetectionRuleUpdate(BaseModel):
     name: Optional[str] = None
@@ -165,6 +188,11 @@ class DetectionRuleUpdate(BaseModel):
     threshold: Optional[int] = None
     window_minutes: Optional[int] = None
     is_enabled: Optional[bool] = None
+    event_type_filter: Optional[str] = None
+    status_filter: Optional[str] = None
+    mitre_tactic: Optional[str] = None
+    mitre_technique_id: Optional[str] = None
+    mitre_technique_name: Optional[str] = None
 
 class DetectionRuleResponse(DetectionRuleBase):
     model_config = ConfigDict(from_attributes=True)
@@ -172,25 +200,76 @@ class DetectionRuleResponse(DetectionRuleBase):
     created_at: datetime
 
 
+# --- Threat Intel & Known Bad IP Schemas ---
+class ThreatFeedItemBase(BaseModel):
+    ip_or_cidr: str
+    feed_name: str = "Internal Threat Blocklist"
+    threat_category: str = "C2_BOTNET"
+    severity: str = "HIGH"
+    description: Optional[str] = None
+    is_active: bool = True
+
+class ThreatFeedItemCreate(ThreatFeedItemBase):
+    pass
+
+class ThreatFeedItemResponse(ThreatFeedItemBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime
+
+class GeoIpResponse(BaseModel):
+    ip: str
+    country_code: str
+    country_name: str
+    flag_emoji: str
+    city: str
+    asn: str
+    isp: str
+    is_bogon: bool = False
+
+class ExternalIntelResponse(BaseModel):
+    ip: str
+    abuse_score: int
+    reputation: str  # CLEAN, SUSPICIOUS, MALICIOUS
+    greynoise_classification: str  # benign, malicious, unknown
+    last_reported: Optional[datetime] = None
+    tags: List[str] = []
+
+
 # --- IP Intelligence Schemas ---
 class IpIntelligenceResponse(BaseModel):
     ip: str
     total_events: int
     total_alerts: int
-    threat_score: int  # 0 to 100
+    threat_score: int  # 0 to 100 (Time-decay calculated)
     threat_level: str  # SAFE, LOW, MEDIUM, HIGH, CRITICAL
     first_seen: Optional[datetime]
     last_seen: Optional[datetime]
     associated_usernames: List[str]
     alert_types: List[str]
     targeted_ports: List[int]
+    geoip: Optional[GeoIpResponse] = None
+    external_intel: Optional[ExternalIntelResponse] = None
     recent_events: List[SecurityEventResponse] = []
     recent_alerts: List[AlertResponse] = []
 
 
+# --- Audit Log Schemas ---
+class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    timestamp: datetime
+    actor_username: str
+    action_type: str
+    entity_type: Optional[str]
+    entity_id: Optional[str]
+    details: Optional[str]
+    ip_address: Optional[str]
+
+
 # --- Simulation Schemas ---
 class SimulationRequest(BaseModel):
-    scenario: str = Field(..., description="brute_force, port_scan, suspicious_login, flood, benign")
+    scenario: str = Field(..., description="brute_force, port_scan, suspicious_login, flood, anomaly, known_bad, benign")
     target_ip: Optional[str] = None
     intensity: Optional[int] = 1
 
@@ -208,11 +287,14 @@ class TopIpStat(BaseModel):
     event_count: int
     alert_count: int
     threat_score: int
+    country: Optional[str] = "US"
+    flag: Optional[str] = "🇺🇸"
 
 class AttackVectorStat(BaseModel):
     attack_type: str
     count: int
     percentage: float
+    mitre_id: Optional[str] = None
 
 class SecurityReportResponse(BaseModel):
     generated_at: datetime
@@ -224,4 +306,5 @@ class SecurityReportResponse(BaseModel):
     severity_breakdown: Dict[str, int]
     top_suspicious_ips: List[TopIpStat]
     top_attack_vectors: List[AttackVectorStat]
+    mitre_tactics_breakdown: Dict[str, int] = {}
     system_health: str

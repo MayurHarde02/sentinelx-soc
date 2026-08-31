@@ -48,6 +48,10 @@ class AttackSimulator:
             return self._scenario_suspicious_login(target_ip, intensity)
         elif scenario == "flood":
             return self._scenario_event_flood(target_ip, intensity)
+        elif scenario == "anomaly":
+            return self._scenario_ml_anomaly(target_ip, intensity)
+        elif scenario == "known_bad":
+            return self._scenario_known_bad(target_ip, intensity)
         elif scenario == "benign":
             return self._scenario_benign(target_ip, intensity)
         else:
@@ -202,7 +206,6 @@ class AttackSimulator:
         self.db.commit()
         self.db.refresh(event)
 
-        # Trigger evaluation on the last event
         alerts = self.engine.evaluate_event(event)
         alerts_triggered += len(alerts)
 
@@ -212,6 +215,73 @@ class AttackSimulator:
             "events_generated": events_created,
             "alerts_triggered": alerts_triggered,
             "message": f"Simulated flood of {events_created} requests from {attacker_ip}. Generated {alerts_triggered} alert(s)."
+        }
+
+    def _scenario_ml_anomaly(self, ip: Optional[str], intensity: int) -> Dict[str, Any]:
+        attacker_ip = ip or "194.26.29.112"
+        events_created = 0
+        alerts_triggered = 0
+
+        # Create unusual combination of high failed rate across multi-port targets
+        for i in range(12 * max(1, intensity)):
+            event = SecurityEvent(
+                timestamp=datetime.utcnow(),
+                event_type="UNAUTHORIZED_ACCESS",
+                source_ip=attacker_ip,
+                destination_ip="10.0.0.5",
+                port=random.choice([8080, 8443, 9000, 9200, 27017, 6379]),
+                username=random.choice(["admin", "oracle", "postgres", "guest"]),
+                status="FAILURE",
+                raw_log=f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UNAUTHORIZED_ACCESS src={attacker_ip} dst=10.0.0.5 status=FAILURE",
+                metadata_json=json.dumps({"anomaly_indicator": "unusual_service_probe", "payload_entropy": 7.8})
+            )
+            self.db.add(event)
+            self.db.commit()
+            self.db.refresh(event)
+            events_created += 1
+
+            alerts = self.engine.evaluate_event(event)
+            alerts_triggered += len(alerts)
+
+        return {
+            "status": "success",
+            "scenario": "anomaly",
+            "events_generated": events_created,
+            "alerts_triggered": alerts_triggered,
+            "message": f"Simulated ML statistical anomaly burst of {events_created} events from {attacker_ip}. Triggered {alerts_triggered} alert(s)."
+        }
+
+    def _scenario_known_bad(self, ip: Optional[str], intensity: int) -> Dict[str, Any]:
+        attacker_ip = ip or "185.220.101.5"
+        events_created = 0
+        alerts_triggered = 0
+
+        for i in range(3 * max(1, intensity)):
+            event = SecurityEvent(
+                timestamp=datetime.utcnow(),
+                event_type="NETWORK_CONNECTION",
+                source_ip=attacker_ip,
+                destination_ip="10.0.0.2",
+                port=443,
+                username="root",
+                status="ATTEMPT",
+                raw_log=f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} NETWORK_CONNECTION src={attacker_ip} dst=10.0.0.2 port=443 status=ATTEMPT",
+                metadata_json=json.dumps({"c2_probe": True, "feed_match": "Tor Exit Node Network"})
+            )
+            self.db.add(event)
+            self.db.commit()
+            self.db.refresh(event)
+            events_created += 1
+
+            alerts = self.engine.evaluate_event(event)
+            alerts_triggered += len(alerts)
+
+        return {
+            "status": "success",
+            "scenario": "known_bad",
+            "events_generated": events_created,
+            "alerts_triggered": alerts_triggered,
+            "message": f"Simulated connection attempt from Known Threat Feed IP {attacker_ip}. Triggered {alerts_triggered} alert(s)."
         }
 
     def _scenario_benign(self, ip: Optional[str], intensity: int) -> Dict[str, Any]:
@@ -258,18 +328,19 @@ async def background_simulation_loop():
                 db = SessionLocal()
                 sim = AttackSimulator(db)
                 
-                # 80% benign, 20% random attack probe
                 rand_val = random.random()
-                if rand_val < 0.70:
+                if rand_val < 0.65:
                     sim._scenario_benign(None, 1)
-                elif rand_val < 0.82:
+                elif rand_val < 0.76:
                     sim._scenario_brute_force(None, 1)
-                elif rand_val < 0.92:
+                elif rand_val < 0.86:
                     sim._scenario_port_scan(None, 1)
+                elif rand_val < 0.94:
+                    sim._scenario_ml_anomaly(None, 1)
                 else:
-                    sim._scenario_suspicious_login(None, 1)
+                    sim._scenario_known_bad(None, 1)
                 
                 db.close()
             except Exception as e:
                 print(f"[Simulator] Error in background stream: {e}")
-        await asyncio.sleep(4)  # Tick every 4 seconds
+        await asyncio.sleep(4)

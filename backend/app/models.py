@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Index
+    Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Index, Float
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -31,13 +31,19 @@ class Alert(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    alert_type = Column(String(64), index=True, nullable=False)  # BRUTE_FORCE, PORT_SCAN, SUSPICIOUS_LOGIN, EVENT_FLOOD
+    alert_type = Column(String(64), index=True, nullable=False)  # BRUTE_FORCE, PORT_SCAN, SUSPICIOUS_LOGIN, EVENT_FLOOD, ANOMALY_DETECTION, KNOWN_MALICIOUS_IP
     source_ip = Column(String(45), index=True, nullable=False)
     severity = Column(String(16), index=True, nullable=False)  # LOW, MEDIUM, HIGH, CRITICAL
     description = Column(Text, nullable=False)
     rule = Column(String(64), nullable=False)
     status = Column(String(32), default="Open", index=True)  # Open, Investigating, Resolved, False Positive
-    details_json = Column(Text, nullable=True)  # JSON string of triggers, counts, event IDs
+    
+    # MITRE ATT&CK Mapping
+    mitre_tactic = Column(String(64), nullable=True, default="Impact")
+    mitre_technique_id = Column(String(32), nullable=True, default="T1498")
+    mitre_technique_name = Column(String(128), nullable=True, default="Network Denial of Service")
+    
+    details_json = Column(Text, nullable=True)  # JSON string of triggers, counts, event IDs, anomaly scores
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -95,9 +101,45 @@ class DetectionRule(Base):
     code = Column(String(64), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=False)
     severity = Column(String(16), nullable=False, default="HIGH")
-    threshold = Column(Integer, nullable=False)
-    window_minutes = Column(Integer, nullable=False)
+    threshold = Column(Integer, nullable=False, default=5)
+    window_minutes = Column(Integer, nullable=False, default=5)
     is_enabled = Column(Boolean, default=True)
+    
+    # Custom Rule Capabilities & MITRE Mapping
+    is_custom = Column(Boolean, default=False)
+    event_type_filter = Column(String(64), nullable=True)
+    status_filter = Column(String(32), nullable=True)
+    mitre_tactic = Column(String(64), nullable=True, default="Credential Access")
+    mitre_technique_id = Column(String(32), nullable=True, default="T1110")
+    mitre_technique_name = Column(String(128), nullable=True, default="Brute Force")
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ThreatFeedItem(Base):
+    __tablename__ = "threat_feed_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ip_or_cidr = Column(String(64), unique=True, index=True, nullable=False)
+    feed_name = Column(String(128), nullable=False, default="Internal Threat Blocklist")
+    threat_category = Column(String(64), nullable=False, default="C2_BOTNET")  # C2_BOTNET, TOR_EXIT, SCANNER, EXPLOIT_SOURCE
+    severity = Column(String(16), nullable=False, default="HIGH")
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    actor_username = Column(String(64), nullable=False, index=True)
+    action_type = Column(String(64), nullable=False, index=True)  # LOGIN, RULE_UPDATE, INCIDENT_UPDATE, ALERT_TRIAGE, FEED_UPDATE, PASSWORD_CHANGE
+    entity_type = Column(String(64), nullable=True)
+    entity_id = Column(String(64), nullable=True)
+    details = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

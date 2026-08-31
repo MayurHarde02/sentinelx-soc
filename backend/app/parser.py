@@ -69,11 +69,12 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
             pass
 
     # 2. Check Syslog sshd Failed
-    match = SYSLOG_FAILED_LOGIN.search(clean_line)
-    if match:
-        user = match.group("user")
-        ip = match.group("ip")
-        port = int(match.group("port"))
+    if "failed password" in clean_line.lower():
+        match = SYSLOG_FAILED_LOGIN.search(clean_line)
+        user = match.group("user") if match else ("root" if "root" in clean_line else None)
+        ip_search = re.search(IP_REGEX, clean_line)
+        ip = match.group("ip") if match else (ip_search.group(0) if ip_search else "127.0.0.1")
+        port = int(match.group("port")) if match else 22
         return SecurityEventCreate(
             timestamp=datetime.utcnow(),
             event_type="LOGIN_FAILED",
@@ -83,15 +84,16 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
             username=user,
             status="FAILURE",
             raw_log=clean_line,
-            metadata_json=json.dumps({"service": "sshd", "host": match.group("host")})
+            metadata_json=json.dumps({"service": "sshd"})
         )
 
     # 3. Check Syslog sshd Success
-    match = SYSLOG_SUCCESS_LOGIN.search(clean_line)
-    if match:
-        user = match.group("user")
-        ip = match.group("ip")
-        port = int(match.group("port"))
+    if "accepted password" in clean_line.lower():
+        match = SYSLOG_SUCCESS_LOGIN.search(clean_line)
+        user = match.group("user") if match else ("root" if "root" in clean_line else None)
+        ip_search = re.search(IP_REGEX, clean_line)
+        ip = match.group("ip") if match else (ip_search.group(0) if ip_search else "127.0.0.1")
+        port = int(match.group("port")) if match else 22
         return SecurityEventCreate(
             timestamp=datetime.utcnow(),
             event_type="LOGIN_SUCCESS",
@@ -101,7 +103,7 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
             username=user,
             status="SUCCESS",
             raw_log=clean_line,
-            metadata_json=json.dumps({"service": "sshd", "host": match.group("host")})
+            metadata_json=json.dumps({"service": "sshd"})
         )
 
     # 4. Check HTTP Access Log
@@ -123,7 +125,6 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
         else:
             event_type = "NETWORK_CONNECTION"
             status = "SUCCESS"
-
         return SecurityEventCreate(
             timestamp=datetime.utcnow(),
             event_type=event_type,
@@ -136,18 +137,14 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
             metadata_json=json.dumps({"method": method, "path": path, "http_status": status_code})
         )
 
-    # 5. Standard SentinelX space/KV format:
-    # "2026-08-18 20:15:10 LOGIN_FAILED user=admin ip=192.168.1.22 port=22"
-    # Or "LOGIN_FAILED ip=1.2.3.4 user=alice status=FAILURE"
+    # 5. Standard SentinelX space/KV format
     parts = clean_line.split()
     timestamp = datetime.utcnow()
     event_type = "SECURITY_EVENT"
     
-    # Try parsing date at start
     time_offset = 0
     if len(parts) >= 2:
         try:
-            # Check YYYY-MM-DD HH:MM:SS
             date_str = f"{parts[0]} {parts[1]}"
             timestamp = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
             time_offset = 2
@@ -164,7 +161,6 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
     
     source_ip = kv.get("ip") or kv.get("source_ip") or kv.get("src") or kv.get("src_ip")
     if not source_ip:
-        # Fallback find first IP regex in the line
         ip_search = re.search(IP_REGEX, clean_line)
         source_ip = ip_search.group(0) if ip_search else "0.0.0.0"
 
@@ -173,10 +169,9 @@ def parse_security_log(raw_line: str) -> SecurityEventCreate:
     port_val = kv.get("port") or kv.get("dst_port") or kv.get("dport")
     port = int(port_val) if port_val and port_val.isdigit() else None
     
-    # Infer default status from event type if missing
     status = kv.get("status")
     if not status:
-        if "FAIL" in event_type or "DENY" in event_type or "DROP" in event_type or "BLOCKED" in event_type:
+        if "FAIL" in event_type or "DENY" in event_type or "DROP" in event_type or "BLOCKED" in event_type or "FAIL" in clean_line.upper():
             status = "FAILURE"
         elif "SUCCESS" in event_type or "ALLOW" in event_type or "ACCEPT" in event_type:
             status = "SUCCESS"

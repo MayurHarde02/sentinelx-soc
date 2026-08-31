@@ -1,70 +1,88 @@
-import io
 import csv
-from datetime import datetime
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+import io
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from app.database import get_db
 from app.models import SecurityEvent, Alert, Incident
 from app.schemas import SecurityReportResponse, TopIpStat, AttackVectorStat
-from app.routers.ip_intel import _calculate_threat_score
+from app.threat_intel import threat_intel_service
 
-router = APIRouter(prefix="/reports", tags=["Reporting & Export"])
+router = APIRouter(prefix="/reports", tags=["Reports & Export"])
 
 @router.get("/summary", response_model=SecurityReportResponse)
-def get_security_summary(db: Session = Depends(get_db)):
-    total_events = db.query(func.count(SecurityEvent.id)).scalar() or 0
-    total_alerts = db.query(func.count(Alert.id)).scalar() or 0
-    
-    active_incidents = db.query(func.count(Incident.id)).filter(
-        Incident.status.in_(["Open", "Investigating"])
-    ).scalar() or 0
+def get_security_report(
+    hours: int = Query(24, description="Time window in hours for report calculations"),
+    db: Session = Depends(get_db)
+):
+    now = datetime.utcnow()
+    window_start = now - timedelta(hours=hours)
 
-    resolved_incidents = db.query(func.count(Incident.id)).filter(
-        Incident.status.in_(["Resolved", "Closed"])
-    ).scalar() or 0
+    total_events = db.query(func.count(SecurityEvent.id)).filter(SecurityEvent.timestamp >= window_start).scalar() or 0
+    total_alerts = db.query(func.count(Alert.id)).filter(Alert.timestamp >= window_start).scalar() or 0
+
+    active_incidents = db.query(func.count(Incident.id)).filter(Incident.status.in_(["Open", "Investigating"])).scalar() or 0
+    resolved_incidents = db.query(func.count(Incident.id)).filter(Incident.status.in_(["Resolved", "Closed"])).scalar() or 0
 
     # Severity breakdown
-    sev_rows = db.query(Alert.severity, func.count(Alert.id)).group_by(Alert.severity).all()
-    severity_breakdown = {s: c for s, c in sev_rows}
+    sev_rows = db.query(Alert.severity, func.count(Alert.id)).filter(Alert.timestamp >= window_start).group_by(Alert.severity).all()
+    severity_breakdown = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    for s, c in sev_rows:
+        if s in severity_breakdown:
+            severity_breakdown[s] = c
 
     # Top suspicious IPs
     top_ip_rows = db.query(
         SecurityEvent.source_ip,
         func.count(SecurityEvent.id).label("event_count")
-    ).group_by(SecurityEvent.source_ip).order_by(desc("event_count")).limit(5).all()
+    ).filter(SecurityEvent.timestamp >= window_start).group_by(SecurityEvent.source_ip).order_by(desc("event_count")).limit(5).all()
 
     top_suspicious_ips = []
-    for row in top_ip_rows:
-        ip = row[0]
-        ev_count = row[1]
-        alerts = db.query(Alert).filter(Alert.source_ip == ip).all()
-        threat_score, _ = _calculate_threat_score(ev_count, alerts)
+    for r in top_ip_rows:
+        ip = r[0]
+        ev_count = r[1]
+        al_count = db.query(func.count(Alert.id)).filter(Alert.source_ip == ip, Alert.timestamp >= window_start).scalar() or 0
+        geo = threat_intel_service.resolve_geoip(ip)
+        
         top_suspicious_ips.append(TopIpStat(
             ip=ip,
             event_count=ev_count,
-            alert_count=len(alerts),
-            threat_score=threat_score
+            alert_count=al_count,
+            threat_score=min(100, al_count * 25 + (15 if ev_count > 50 else 5)),
+            country=geo.get("country_code", "US"),
+            flag=geo.get("flag_emoji", "🌐")
         ))
 
-    # Top attack vectors
-    type_rows = db.query(Alert.alert_type, func.count(Alert.id)).group_by(Alert.alert_type).all()
+    # Attack vector breakdown
+    alert_type_rows = db.query(Alert.alert_type, func.count(Alert.id)).filter(Alert.timestamp >= window_start).group_by(Alert.alert_type).all()
     top_attack_vectors = []
-    for t_row in type_rows:
-        count = t_row[1]
-        pct = round((count / total_alerts * 100), 1) if total_alerts > 0 else 0.0
+    for at, count in alert_type_rows:
+        pct = round((count / total_alerts * 100.0), 1) if total_alerts > 0 else 0.0
         top_attack_vectors.append(AttackVectorStat(
-            attack_type=t_row[0],
+            attack_type=at,
             count=count,
-            percentage=pct
+            percentage=pct,
+            mitre_id="T1110" if at == "BRUTE_FORCE" else "T1046" if at == "PORT_SCAN" else "T1078" if at == "SUSPICIOUS_LOGIN" else "T1498"
         ))
 
-    system_health = "HEALTHY" if total_alerts == 0 or (severity_breakdown.get("CRITICAL", 0) == 0 and severity_breakdown.get("HIGH", 0) < 5) else "THREAT_ELEVATED"
+    # MITRE ATT&CK Tactics Breakdown
+    tactic_rows = db.query(Alert.mitre_tactic, func.count(Alert.id)).filter(Alert.timestamp >= window_start).group_by(Alert.mitre_tactic).all()
+    mitre_tactics_breakdown = {t or "Uncategorized": c for t, c in tactic_rows}
+
+    # System health determination
+    health = "HEALTHY"
+    if severity_breakdown["CRITICAL"] > 0:
+        health = "CRITICAL_RISK"
+    elif severity_breakdown["HIGH"] > 2:
+        health = "ELEVATED_THREAT"
+    elif total_alerts > 0:
+        health = "GUARDED"
 
     return SecurityReportResponse(
-        generated_at=datetime.utcnow(),
-        time_window="All Recorded Telemetry",
+        generated_at=now,
+        time_window=f"Last {hours} Hours",
         total_events=total_events,
         total_alerts=total_alerts,
         active_incidents=active_incidents,
@@ -72,42 +90,49 @@ def get_security_summary(db: Session = Depends(get_db)):
         severity_breakdown=severity_breakdown,
         top_suspicious_ips=top_suspicious_ips,
         top_attack_vectors=top_attack_vectors,
-        system_health=system_health
+        mitre_tactics_breakdown=mitre_tactics_breakdown,
+        system_health=health
     )
 
 @router.get("/export/csv")
 def export_csv(
-    data_type: str = Query("alerts", description="events, alerts, incidents"),
+    data_type: str = Query(..., description="'events', 'alerts', or 'incidents'"),
+    limit: int = Query(1000, le=10000),
     db: Session = Depends(get_db)
 ):
     output = io.StringIO()
     writer = csv.writer(output)
 
     if data_type == "events":
-        writer.writerow(["ID", "Timestamp", "Event Type", "Source IP", "Dest IP", "Port", "Username", "Status", "Raw Log"])
-        events = db.query(SecurityEvent).order_by(desc(SecurityEvent.timestamp)).limit(5000).all()
-        for e in events:
-            writer.writerow([e.id, e.timestamp, e.event_type, e.source_ip, e.destination_ip or "", e.port or "", e.username or "", e.status, e.raw_log or ""])
+        records = db.query(SecurityEvent).order_by(desc(SecurityEvent.timestamp)).limit(limit).all()
+        writer.writerow(["ID", "Timestamp", "Event Type", "Source IP", "Destination IP", "Port", "Username", "Status", "Raw Log"])
+        for r in records:
+            writer.writerow([r.id, str(r.timestamp), r.event_type, r.source_ip, r.destination_ip, r.port, r.username, r.status, r.raw_log])
         filename = f"sentinelx_events_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
 
     elif data_type == "alerts":
-        writer.writerow(["ID", "Timestamp", "Alert Type", "Source IP", "Severity", "Rule", "Status", "Description"])
-        alerts = db.query(Alert).order_by(desc(Alert.timestamp)).limit(5000).all()
-        for a in alerts:
-            writer.writerow([a.id, a.timestamp, a.alert_type, a.source_ip, a.severity, a.rule, a.status, a.description])
+        records = db.query(Alert).order_by(desc(Alert.timestamp)).limit(limit).all()
+        writer.writerow(["ID", "Timestamp", "Alert Type", "Severity", "Source IP", "Rule", "Status", "MITRE Tactic", "MITRE Technique", "Description"])
+        for r in records:
+            writer.writerow([r.id, str(r.timestamp), r.alert_type, r.severity, r.source_ip, r.rule, r.status, r.mitre_tactic, r.mitre_technique_id, r.description])
         filename = f"sentinelx_alerts_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
 
     elif data_type == "incidents":
-        writer.writerow(["ID", "Title", "Severity", "Status", "Assigned To", "Created At", "Resolved At", "Description", "Resolution Notes"])
-        incidents = db.query(Incident).order_by(desc(Incident.created_at)).all()
-        for inc in incidents:
-            writer.writerow([inc.id, inc.title, inc.severity, inc.status, inc.assigned_to or "", inc.created_at, inc.resolved_at or "", inc.description or "", inc.resolution_notes or ""])
+        records = db.query(Incident).order_by(desc(Incident.created_at)).limit(limit).all()
+        writer.writerow(["ID", "Title", "Severity", "Status", "Assigned To", "Created At", "Resolved At", "Resolution Notes"])
+        for r in records:
+            writer.writerow([r.id, r.title, r.severity, r.status, r.assigned_to, str(r.created_at), str(r.resolved_at), r.resolution_notes])
         filename = f"sentinelx_incidents_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
     else:
-        raise HTTPException(status_code=400, detail="Invalid data_type. Choose from 'events', 'alerts', 'incidents'")
+        output.close()
+        return Response(content="Invalid data_type parameter. Choose 'events', 'alerts', or 'incidents'.", status_code=400)
+
+    csv_data = output.getvalue()
+    output.close()
 
     return Response(
-        content=output.getvalue(),
+        content=csv_data,
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )

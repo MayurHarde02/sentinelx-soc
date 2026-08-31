@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from app.database import get_db
@@ -15,6 +15,8 @@ from app.schemas import (
 )
 from app.parser import parse_security_log
 from app.detection import DetectionEngine
+from app.websocket_manager import ws_manager
+from app.rate_limiter import rate_limiter
 
 router = APIRouter(prefix="/events", tags=["Security Events"])
 
@@ -50,7 +52,9 @@ def get_events(
     return query.order_by(desc(SecurityEvent.timestamp)).offset(offset).limit(limit).all()
 
 @router.post("", response_model=Dict[str, Any])
-def ingest_event(event_in: SecurityEventCreate, db: Session = Depends(get_db)):
+def ingest_event(event_in: SecurityEventCreate, request: Request, db: Session = Depends(get_db)):
+    rate_limiter.check_rate_limit(request, key_prefix="ingest_structured", max_tokens=100, refill_rate_per_sec=20.0)
+
     event = SecurityEvent(
         timestamp=event_in.timestamp or datetime.utcnow(),
         event_type=event_in.event_type,
@@ -69,6 +73,16 @@ def ingest_event(event_in: SecurityEventCreate, db: Session = Depends(get_db)):
     engine = DetectionEngine(db)
     triggered_alerts = engine.evaluate_event(event)
 
+    ws_manager.broadcast_sync("NEW_EVENT", {
+        "id": event.id,
+        "event_type": event.event_type,
+        "source_ip": event.source_ip,
+        "port": event.port,
+        "username": event.username,
+        "status": event.status,
+        "timestamp": str(event.timestamp)
+    })
+
     return {
         "status": "success",
         "event_id": event.id,
@@ -77,7 +91,9 @@ def ingest_event(event_in: SecurityEventCreate, db: Session = Depends(get_db)):
     }
 
 @router.post("/raw", response_model=Dict[str, Any])
-def ingest_raw_log(payload: RawLogIngestRequest, db: Session = Depends(get_db)):
+def ingest_raw_log(payload: RawLogIngestRequest, request: Request, db: Session = Depends(get_db)):
+    rate_limiter.check_rate_limit(request, key_prefix="ingest_raw", max_tokens=100, refill_rate_per_sec=20.0)
+
     try:
         parsed_event = parse_security_log(payload.log_line)
     except Exception as e:
@@ -100,6 +116,16 @@ def ingest_raw_log(payload: RawLogIngestRequest, db: Session = Depends(get_db)):
 
     engine = DetectionEngine(db)
     triggered_alerts = engine.evaluate_event(event)
+
+    ws_manager.broadcast_sync("NEW_EVENT", {
+        "id": event.id,
+        "event_type": event.event_type,
+        "source_ip": event.source_ip,
+        "port": event.port,
+        "username": event.username,
+        "status": event.status,
+        "timestamp": str(event.timestamp)
+    })
 
     return {
         "status": "success",
@@ -193,11 +219,9 @@ async def upload_log_file(file: UploadFile = File(...), db: Session = Depends(ge
 def get_event_stats(db: Session = Depends(get_db)):
     total = db.query(func.count(SecurityEvent.id)).scalar() or 0
 
-    # Group by event type
     type_rows = db.query(SecurityEvent.event_type, func.count(SecurityEvent.id)).group_by(SecurityEvent.event_type).all()
     event_types = {t: c for t, c in type_rows}
 
-    # Top 5 source IPs
     ip_rows = db.query(
         SecurityEvent.source_ip,
         func.count(SecurityEvent.id).label("count")
@@ -205,7 +229,6 @@ def get_event_stats(db: Session = Depends(get_db)):
     
     top_source_ips = [{"ip": r[0], "count": r[1]} for r in ip_rows]
 
-    # Activity over time (e.g. grouped by hour or minute in recent window)
     events_per_minute = []
     recent_events = db.query(
         func.strftime('%Y-%m-%d %H:%M', SecurityEvent.timestamp).label("minute_bucket"),

@@ -8,24 +8,26 @@ import {
   Zap,
   Sliders,
   FileBarChart,
-  TerminalSquare
+  Shield,
+  ClipboardList
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { id: 'overview', label: 'SOC Overview', icon: LayoutDashboard },
-  { id: 'logs', label: 'Event Logs', icon: Activity },
-  { id: 'alerts', label: 'Alerts Triage', icon: AlertOctagon },
-  { id: 'incidents', label: 'Incidents', icon: ShieldAlert },
-  { id: 'ip_intel', label: 'IP Intelligence', icon: Globe },
-  { id: 'simulator', label: 'Attack Simulator', icon: Zap },
-  { id: 'rules', label: 'Detection Rules', icon: Sliders },
-  { id: 'reports', label: 'Reports & Export', icon: FileBarChart },
+  { id: 'overview',    label: 'SOC Overview',      icon: LayoutDashboard },
+  { id: 'logs',        label: 'Event Logs',         icon: Activity },
+  { id: 'alerts',      label: 'Alerts Triage',      icon: AlertOctagon },
+  { id: 'incidents',   label: 'Incidents',           icon: ShieldAlert },
+  { id: 'ip_intel',   label: 'IP Intelligence',     icon: Globe },
+  { id: 'threat_intel',label: 'Threat Intel',        icon: Shield },
+  { id: 'simulator',   label: 'Attack Simulator',    icon: Zap },
+  { id: 'rules',       label: 'Detection Rules',     icon: Sliders },
+  { id: 'reports',     label: 'Reports & Export',    icon: FileBarChart },
+  { id: 'audit',       label: 'Audit Trail',         icon: ClipboardList },
 ];
 
 const Sidebar = ({ activeTab, setActiveTab, alertCounts = {}, incidentCounts = {} }) => {
   return (
     <aside className="sidebar">
-      {/* Navigation section */}
       <div style={{ padding: '1.25rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', flex: 1 }}>
         <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 0.6rem 0.5rem' }}>
           Operations Center
@@ -34,7 +36,7 @@ const Sidebar = ({ activeTab, setActiveTab, alertCounts = {}, incidentCounts = {
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
-          
+
           let countBadge = null;
           if (item.id === 'alerts' && alertCounts.open_alerts > 0) {
             countBadge = (
@@ -98,7 +100,7 @@ const Sidebar = ({ activeTab, setActiveTab, alertCounts = {}, incidentCounts = {
         })}
       </div>
 
-      {/* System environment footer note */}
+      {/* Footer */}
       <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.2)', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
         <div>Environment: <span style={{ color: 'var(--color-primary)' }}>SOC Sandbox</span></div>
         <div style={{ marginTop: '0.2rem' }}>DB: <span style={{ color: 'var(--text-muted)' }}>SQLite Local</span></div>

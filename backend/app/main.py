@@ -9,17 +9,22 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.database import init_db
 from app.simulator import background_simulation_loop
-from app.routers import auth, events, alerts, incidents, ip_intel, rules, simulation, reports
+from app.middleware import SecurityHeadersMiddleware
+from app.routers import (
+    auth, events, alerts, incidents, ip_intel,
+    rules, simulation, reports, ws, threat_intel, audit
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize Database & Seed data
     init_db()
-    # Start background simulation task
-    sim_task = asyncio.create_task(background_simulation_loop())
+    sim_task = None
+    if not os.environ.get("TESTING"):
+        sim_task = asyncio.create_task(background_simulation_loop())
     yield
-    # Shutdown: cancel task
-    sim_task.cancel()
+    if sim_task:
+        sim_task.cancel()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -27,6 +32,9 @@ app = FastAPI(
     description="SentinelX: Mini Security Operations Center (SOC) & SIEM API",
     lifespan=lifespan
 )
+
+# Attach Security Headers and CSP Middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Setup CORS
 app.add_middleware(
@@ -43,9 +51,12 @@ app.include_router(events.router, prefix=settings.API_V1_STR)
 app.include_router(alerts.router, prefix=settings.API_V1_STR)
 app.include_router(incidents.router, prefix=settings.API_V1_STR)
 app.include_router(ip_intel.router, prefix=settings.API_V1_STR)
+app.include_router(threat_intel.router, prefix=settings.API_V1_STR)
 app.include_router(rules.router, prefix=settings.API_V1_STR)
 app.include_router(simulation.router, prefix=settings.API_V1_STR)
 app.include_router(reports.router, prefix=settings.API_V1_STR)
+app.include_router(audit.router, prefix=settings.API_V1_STR)
+app.include_router(ws.router, prefix=settings.API_V1_STR)
 
 @app.get("/health", tags=["Health"])
 def health_check():
@@ -65,11 +76,9 @@ for candidate in frontend_candidates:
         break
 
 if dist_dir:
-    # Mount assets subfolder
     if (dist_dir / "assets").exists():
         app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
 
-    # Serve SPA index fallback for all other routes
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
         file_path = dist_dir / full_path

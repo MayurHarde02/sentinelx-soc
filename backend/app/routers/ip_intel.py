@@ -1,34 +1,53 @@
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, distinct
 from app.database import get_db
 from app.models import SecurityEvent, Alert
-from app.schemas import IpIntelligenceResponse, SecurityEventResponse, AlertResponse
+from app.schemas import IpIntelligenceResponse, SecurityEventResponse, AlertResponse, GeoIpResponse, ExternalIntelResponse
+from app.threat_intel import threat_intel_service
 
 router = APIRouter(prefix="/ip-intelligence", tags=["IP Intelligence"])
 
-def _calculate_threat_score(total_events: int, alerts: List[Alert]) -> tuple[int, str]:
-    score = 0
-    for a in alerts:
-        if a.severity == "CRITICAL":
-            score += 40
-        elif a.severity == "HIGH":
-            score += 25
-        elif a.severity == "MEDIUM":
-            score += 12
-        elif a.severity == "LOW":
-            score += 5
-            
-    # Add minor weight for overall event count
-    if total_events > 100:
-        score += 15
-    elif total_events > 30:
-        score += 8
+def _calculate_time_decay_threat_score(total_events: int, last_seen: Optional[datetime], alerts: List[Alert]) -> tuple[int, str]:
+    """
+    Calculates dynamic threat score (0-100) using mathematical exponential time-decay.
+    Alerts decay with a 24-hour half-life so older, non-recurrent alerts fade naturally.
+    """
+    now = datetime.utcnow()
+    decay_constant = 0.0288  # ln(2)/24 hours approx 0.0288 per hour
 
-    score = min(100, score)
-    
+    accumulated_score = 0.0
+
+    for a in alerts:
+        base_weight = 6.0
+        if a.severity == "CRITICAL":
+            base_weight = 45.0
+        elif a.severity == "HIGH":
+            base_weight = 28.0
+        elif a.severity == "MEDIUM":
+            base_weight = 15.0
+        elif a.severity == "LOW":
+            base_weight = 6.0
+
+        # Calculate hours elapsed since alert
+        hours_elapsed = max(0.0, (now - a.timestamp).total_seconds() / 3600.0)
+        decay_factor = math.exp(-decay_constant * hours_elapsed)
+        accumulated_score += (base_weight * decay_factor)
+
+    # Add modest volume factor based on recency
+    if last_seen:
+        hours_since_last = max(0.0, (now - last_seen).total_seconds() / 3600.0)
+        vol_decay = math.exp(-0.0144 * hours_since_last)  # 48h half-life for raw traffic
+        if total_events > 100:
+            accumulated_score += (18.0 * vol_decay)
+        elif total_events > 30:
+            accumulated_score += (10.0 * vol_decay)
+
+    score = int(min(100.0, round(accumulated_score)))
+
     if score >= 80:
         level = "CRITICAL"
     elif score >= 60:
@@ -50,7 +69,6 @@ def list_ip_intelligence(
     min_score: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    # Query distinct IPs from events
     ip_query = db.query(
         SecurityEvent.source_ip,
         func.count(SecurityEvent.id).label("event_count"),
@@ -70,29 +88,28 @@ def list_ip_intelligence(
         first_seen = row[2]
         last_seen = row[3]
 
-        # Fetch alerts for this IP
         alerts = db.query(Alert).filter(Alert.source_ip == ip).all()
-        threat_score, threat_level = _calculate_threat_score(event_count, alerts)
+        threat_score, threat_level = _calculate_time_decay_threat_score(event_count, last_seen, alerts)
 
         if min_score is not None and threat_score < min_score:
             continue
 
-        # Fetch associated usernames
         usernames = db.query(distinct(SecurityEvent.username)).filter(
             SecurityEvent.source_ip == ip,
             SecurityEvent.username.isnot(None)
         ).all()
         associated_users = [u[0] for u in usernames if u[0]]
 
-        # Fetch alert types
         alert_types = list(set([a.alert_type for a in alerts]))
 
-        # Fetch targeted ports
         ports = db.query(distinct(SecurityEvent.port)).filter(
             SecurityEvent.source_ip == ip,
             SecurityEvent.port.isnot(None)
         ).all()
         targeted_ports = [p[0] for p in ports if p[0]]
+
+        # GeoIP info
+        geo_info = threat_intel_service.resolve_geoip(ip)
 
         ip_profiles.append(IpIntelligenceResponse(
             ip=ip,
@@ -105,11 +122,12 @@ def list_ip_intelligence(
             associated_usernames=associated_users,
             alert_types=alert_types,
             targeted_ports=targeted_ports,
+            geoip=GeoIpResponse(**geo_info),
+            external_intel=None,
             recent_events=[],
             recent_alerts=[]
         ))
 
-    # Sort primarily by threat_score descending
     ip_profiles.sort(key=lambda x: (x.threat_score, x.total_events), reverse=True)
     return ip_profiles
 
@@ -123,7 +141,7 @@ def get_ip_details(ip: str, db: Session = Depends(get_db)):
     last_seen = db.query(func.max(SecurityEvent.timestamp)).filter(SecurityEvent.source_ip == ip).scalar()
 
     alerts = db.query(Alert).filter(Alert.source_ip == ip).order_by(desc(Alert.timestamp)).all()
-    threat_score, threat_level = _calculate_threat_score(event_count, alerts)
+    threat_score, threat_level = _calculate_time_decay_threat_score(event_count, last_seen, alerts)
 
     usernames = db.query(distinct(SecurityEvent.username)).filter(
         SecurityEvent.source_ip == ip,
@@ -141,6 +159,10 @@ def get_ip_details(ip: str, db: Session = Depends(get_db)):
         SecurityEvent.source_ip == ip
     ).order_by(desc(SecurityEvent.timestamp)).limit(25).all()
 
+    # GeoIP and External Intelligence
+    geo_data = threat_intel_service.resolve_geoip(ip)
+    ext_intel = threat_intel_service.fetch_external_reputation(ip)
+
     return IpIntelligenceResponse(
         ip=ip,
         total_events=event_count,
@@ -152,6 +174,8 @@ def get_ip_details(ip: str, db: Session = Depends(get_db)):
         associated_usernames=associated_users,
         alert_types=list(set([a.alert_type for a in alerts])),
         targeted_ports=targeted_ports,
+        geoip=GeoIpResponse(**geo_data),
+        external_intel=ExternalIntelResponse(**ext_intel),
         recent_events=[SecurityEventResponse.model_validate(e) for e in recent_events],
         recent_alerts=[AlertResponse.model_validate(a) for a in alerts[:15]]
     )
