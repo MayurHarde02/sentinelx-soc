@@ -153,3 +153,38 @@ class User(Base):
     role = Column(String(32), default="analyst")  # admin, analyst, student
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Playbook(Base):
+    __tablename__ = "playbooks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(64), unique=True, index=True, nullable=False)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=False)
+    category = Column(String(64), nullable=False, default="CONTAINMENT")  # CONTAINMENT, FORENSICS, REMEDIATION, NOTIFICATION
+    target_type = Column(String(32), nullable=False, default="IP")  # IP, USER, INCIDENT
+    trigger_type = Column(String(32), nullable=False, default="MANUAL")  # MANUAL, AUTO_ON_CRITICAL, AUTO_ON_INCIDENT
+    is_active = Column(Boolean, default=True)
+    actions_json = Column(Text, nullable=True)  # JSON array of action step descriptions
+    execution_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PlaybookExecution(Base):
+    __tablename__ = "playbook_executions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    playbook_code = Column(String(64), index=True, nullable=False)
+    playbook_name = Column(String(128), nullable=False)
+    target_type = Column(String(32), nullable=False)  # IP, USER, INCIDENT
+    target_value = Column(String(128), nullable=False)  # e.g. "198.51.100.4" or "jdoe"
+    triggered_by = Column(String(64), nullable=False, default="analyst")  # analyst username or "SOAR_DAEMON"
+    status = Column(String(32), default="SUCCESS")  # SUCCESS, FAILED, RUNNING
+    incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    alert_id = Column(Integer, ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
+    execution_log_json = Column(Text, nullable=True)  # JSON array of execution step objects
+    duration_ms = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+

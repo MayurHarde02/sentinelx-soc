@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Plus, MessageSquare, CheckCircle, Clock, User, AlertTriangle, Send, GitBranch } from 'lucide-react';
+import { ShieldAlert, Shield, Lock, Plus, MessageSquare, CheckCircle, Clock, User, AlertTriangle, Send, GitBranch, Bot, Play, ChevronDown } from 'lucide-react';
+
 import api from '../api/client';
 import SeverityBadge from '../components/SeverityBadge';
 import StatusBadge from '../components/StatusBadge';
@@ -14,6 +15,9 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
   const [resolutionText, setResolutionText] = useState('');
   const [loading, setLoading] = useState(true);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState('timeline');
+  const [playbookDropdownOpen, setPlaybookDropdownOpen] = useState(false);
+  const [runningPlaybook, setRunningPlaybook] = useState(false);
+
 
   const fetchIncidents = async () => {
     try {
@@ -78,7 +82,31 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
     }
   };
 
+  const handleRunIncidentPlaybook = async (code) => {
+    if (!selectedIncident) return;
+    const targetIp = (selectedIncident.alerts && selectedIncident.alerts.length > 0)
+      ? selectedIncident.alerts[0].source_ip
+      : '198.51.100.44';
+
+    setRunningPlaybook(true);
+    try {
+      await api.post(`/soar/playbooks/${code}/execute`, {
+        target_value: targetIp,
+        incident_id: selectedIncident.id
+      });
+      const res = await api.get(`/incidents/${selectedIncident.id}`);
+      setSelectedIncident(res.data);
+      fetchIncidents();
+      setPlaybookDropdownOpen(false);
+    } catch (err) {
+      console.error('Failed to run playbook on incident', err);
+    } finally {
+      setRunningPlaybook(false);
+    }
+  };
+
   const workspaceTabs = [
+
     { id: 'timeline', label: '🔍 Timeline' },
     { id: 'alerts', label: '⚡ Alerts' },
     { id: 'notes', label: '📝 Notes' },
@@ -169,21 +197,90 @@ const IncidentsView = ({ onOpenCreateIncident }) => {
                   Created {new Date(selectedIncident.created_at).toLocaleString()} • Assigned to <strong>{selectedIncident.assigned_to || 'Unassigned'}</strong>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Status:</span>
-                <select
-                  className="soc-select"
-                  value={selectedIncident.status}
-                  onChange={(e) => handleUpdateIncidentStatus(e.target.value)}
-                >
-                  <option value="Open">Open</option>
-                  <option value="Investigating">Investigating</option>
-                  <option value="Mitigated">Mitigated</option>
-                  <option value="Resolved">Resolved</option>
-                  <option value="Closed">Closed</option>
-                </select>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                {/* SOAR Run Playbook Dropdown */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPlaybookDropdownOpen(!playbookDropdownOpen)}
+                    className="btn btn-sm btn-primary"
+                    disabled={runningPlaybook}
+                    style={{ padding: '0.35rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                  >
+                    <Bot size={14} />
+                    <span>{runningPlaybook ? 'Executing...' : 'Run Playbook'}</span>
+                    <ChevronDown size={12} />
+                  </button>
+
+                  {playbookDropdownOpen && (
+                    <div style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: '100%',
+                      marginTop: '0.4rem',
+                      background: 'var(--bg-surface-raised)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '6px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                      width: '240px',
+                      zIndex: 50,
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ padding: '0.4rem 0.65rem', fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)' }}>
+                        Select SOAR Playbook
+                      </div>
+                      <button
+                        onClick={() => handleRunIncidentPlaybook('PLAYBOOK_CONTAIN_IP')}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', background: 'none', border: 'none', textAlign: 'left', color: 'var(--text-main)', fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                      >
+                        <Shield size={14} color="#f87171" />
+                        <div>
+                          <div style={{ fontWeight: 600 }}>Contain Attacker IP</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>Block in feed &amp; drop traffic</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleRunIncidentPlaybook('PLAYBOOK_FORENSIC_DOSSIER')}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', background: 'none', border: 'none', textAlign: 'left', color: 'var(--text-main)', fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                      >
+                        <Bot size={14} color="#06b6d4" />
+                        <div>
+                          <div style={{ fontWeight: 600 }}>Forensic Dossier</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>GeoIP &amp; historical correlation</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleRunIncidentPlaybook('PLAYBOOK_QUARANTINE_USER')}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', background: 'none', border: 'none', textAlign: 'left', color: 'var(--text-main)', fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                      >
+                        <Lock size={14} color="#fbbf24" />
+                        <div>
+                          <div style={{ fontWeight: 600 }}>Quarantine User</div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>Deactivate compromised account</div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Selector */}
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Status:</span>
+                  <select
+                    className="soc-select"
+                    value={selectedIncident.status}
+                    onChange={(e) => handleUpdateIncidentStatus(e.target.value)}
+                  >
+                    <option value="Open">Open</option>
+                    <option value="Investigating">Investigating</option>
+                    <option value="Mitigated">Mitigated</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+                </div>
               </div>
             </div>
+
 
             {/* Workspace Tab Bar */}
             <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0' }}>

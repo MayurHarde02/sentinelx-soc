@@ -308,3 +308,54 @@ class SecurityReportResponse(BaseModel):
     top_attack_vectors: List[AttackVectorStat]
     mitre_tactics_breakdown: Dict[str, int] = {}
     system_health: str
+
+
+# --- SOAR Schemas ---
+class PlaybookBase(BaseModel):
+    code: str
+    name: str
+    description: str
+    category: str = "CONTAINMENT"
+    target_type: str = "IP"
+    trigger_type: str = "MANUAL"
+    is_active: bool = True
+    actions_json: Optional[str] = None
+
+class PlaybookResponse(PlaybookBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    execution_count: int
+    created_at: datetime
+    updated_at: datetime
+
+class PlaybookExecuteRequest(BaseModel):
+    target_value: str = Field(..., description="IP address, username, or incident identifier")
+    incident_id: Optional[int] = None
+    alert_id: Optional[int] = None
+
+class PlaybookExecutionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    playbook_code: str
+    playbook_name: str
+    target_type: str
+    target_value: str
+    triggered_by: str
+    status: str
+    incident_id: Optional[int] = None
+    alert_id: Optional[int] = None
+    execution_log_json: Optional[str] = None
+    duration_ms: int
+    created_at: datetime
+
+class SoarMetricsResponse(BaseModel):
+    mttd_seconds: float
+    mttr_seconds: float
+    mttd_display: str
+    mttr_display: str
+    total_playbooks: int
+    active_playbooks: int
+    total_executions: int
+    successful_executions: int
+    auto_contained_threats: int
+

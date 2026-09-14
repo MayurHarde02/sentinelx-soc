@@ -178,6 +178,11 @@ def init_db():
             )
             db.add(analyst_user)
 
+        # Seed SOAR default playbooks
+        from app.playbooks import seed_default_playbooks
+        seed_default_playbooks(db)
+
         db.commit()
     finally:
         db.close()
+

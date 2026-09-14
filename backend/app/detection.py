@@ -351,4 +351,12 @@ class DetectionEngine:
             "timestamp": str(new_alert.timestamp)
         })
 
+        # Autonomous SOAR Response Hook
+        try:
+            from app.playbooks import trigger_auto_containment_if_applicable
+            trigger_auto_containment_if_applicable(self.db, new_alert)
+        except Exception:
+            pass
+
         return new_alert
+

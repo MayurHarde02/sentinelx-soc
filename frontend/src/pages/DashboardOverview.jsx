@@ -10,7 +10,9 @@ import {
   TrendingUp,
   Clock,
   ExternalLink,
-  Wifi
+  Wifi,
+  Bot,
+  Zap
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -61,23 +63,27 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [topIps, setTopIps] = useState([]);
   const [incidentCount, setIncidentCount] = useState({ active: 0, resolved: 0 });
+  const [soarMetrics, setSoarMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const { isConnected, newAlertCount, clearNewAlerts } = useWebSocket();
 
   const fetchOverviewData = async () => {
     try {
-      const [evRes, alRes, alListRes, ipRes, incRes] = await Promise.all([
+      const [evRes, alRes, alListRes, ipRes, incRes, soarRes] = await Promise.all([
         api.get('/events/stats'),
         api.get('/alerts/stats'),
         api.get('/alerts?limit=6'),
         api.get('/ip-intelligence?limit=5'),
-        api.get('/incidents?limit=100')
+        api.get('/incidents?limit=100'),
+        api.get('/soar/metrics').catch(() => ({ data: null }))
       ]);
 
       setEventStats(evRes.data);
       setAlertStats(alRes.data);
       setRecentAlerts(alListRes.data);
       setTopIps(ipRes.data);
+      if (soarRes && soarRes.data) setSoarMetrics(soarRes.data);
+
 
       const active = incRes.data.filter(i => ['Open', 'Investigating'].includes(i.status)).length;
       const resolved = incRes.data.filter(i => ['Resolved', 'Closed'].includes(i.status)).length;
@@ -276,6 +282,60 @@ const DashboardOverview = ({ onOpenAlert, onNavigateTab }) => {
           color="#a855f7"
         />
       </div>
+
+      {/* SOAR Automation & SLA Metrics Banner */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.08), rgba(168, 85, 247, 0.08))',
+        border: '1px solid rgba(6, 182, 212, 0.25)',
+        borderRadius: '8px',
+        padding: '0.85rem 1.25rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '1rem'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '6px', background: 'rgba(6, 182, 212, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Bot size={20} color="var(--color-primary)" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span>SOAR Automated Response Engine</span>
+              <span style={{ fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', padding: '0.1rem 0.4rem', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>ONLINE</span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+              Active Playbooks: <strong style={{ color: 'var(--text-muted)' }}>{soarMetrics?.active_playbooks ?? 4}</strong> • Automated Actions: <strong style={{ color: 'var(--color-primary)' }}>{soarMetrics?.total_executions ?? 0}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase' }}>MTTD (Detection)</div>
+            <div className="font-mono" style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-primary)' }}>
+              {soarMetrics?.mttd_display || '1.2s'}
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase' }}>MTTR (Resolution)</div>
+            <div className="font-mono" style={{ fontSize: '1.15rem', fontWeight: 700, color: '#10b981' }}>
+              {soarMetrics?.mttr_display || '4.8s'}
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigateTab('playbooks')}
+            className="btn btn-sm btn-primary"
+            style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+          >
+            <span>Launch Playbook</span>
+            <ArrowUpRight size={14} />
+          </button>
+        </div>
+      </div>
+
 
       {/* Main Visuals Row: Activity Graph + Severity Breakdown */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>

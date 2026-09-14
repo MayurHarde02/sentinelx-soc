@@ -1,7 +1,8 @@
 import React from 'react';
-import { ShieldAlert, AlertTriangle, MessageSquare, CheckCircle, Clock, Zap, Flag } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, MessageSquare, CheckCircle, Clock, Zap, Flag, Bot } from 'lucide-react';
 import SeverityBadge from './SeverityBadge';
 import MitreBadge from './MitreBadge';
+
 
 const InvestigationTimeline = ({ incident }) => {
   if (!incident) {
@@ -48,21 +49,24 @@ const InvestigationTimeline = ({ incident }) => {
     });
   }
 
-  // 3. Analyst Investigation Notes
+  // 3. Analyst & SOAR Investigation Notes
   if (incident.notes && Array.isArray(incident.notes)) {
     incident.notes.forEach((note) => {
+      const isSoar = note.author?.startsWith('SOAR') || note.note?.includes('Automated Containment') || note.note?.includes('SOAR Automated Forensic Dossier') || note.note?.includes('Account Quarantine');
       timelineNodes.push({
         id: `note-${note.id}`,
-        type: 'ANALYST_NOTE',
-        title: `Analyst Log (${note.author})`,
+        type: isSoar ? 'SOAR_PLAYBOOK' : 'ANALYST_NOTE',
+        title: isSoar ? `🤖 SOAR Automation (${note.author})` : `Analyst Log (${note.author})`,
         timestamp: new Date(note.created_at),
         description: note.note,
         author: note.author,
-        icon: MessageSquare,
-        color: '#3b82f6'
+        is_soar: isSoar,
+        icon: isSoar ? Bot : MessageSquare,
+        color: isSoar ? '#06b6d4' : '#3b82f6'
       });
     });
   }
+
 
   // 4. Incident Resolution Node
   if (['Resolved', 'Closed', 'Mitigated'].includes(incident.status)) {

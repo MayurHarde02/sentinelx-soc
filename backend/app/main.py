@@ -12,7 +12,7 @@ from app.simulator import background_simulation_loop
 from app.middleware import SecurityHeadersMiddleware
 from app.routers import (
     auth, events, alerts, incidents, ip_intel,
-    rules, simulation, reports, ws, threat_intel, audit
+    rules, simulation, reports, ws, threat_intel, audit, soar
 )
 
 @asynccontextmanager
@@ -56,7 +56,9 @@ app.include_router(rules.router, prefix=settings.API_V1_STR)
 app.include_router(simulation.router, prefix=settings.API_V1_STR)
 app.include_router(reports.router, prefix=settings.API_V1_STR)
 app.include_router(audit.router, prefix=settings.API_V1_STR)
+app.include_router(soar.router, prefix=settings.API_V1_STR)
 app.include_router(ws.router, prefix=settings.API_V1_STR)
+
 
 @app.get("/health", tags=["Health"])
 def health_check():

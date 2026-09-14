@@ -13,7 +13,9 @@ import AttackSimulatorView from './pages/AttackSimulatorView';
 import DetectionRulesView from './pages/DetectionRulesView';
 import ReportsView from './pages/ReportsView';
 import AuditLogsView from './pages/AuditLogsView';
+import PlaybooksView from './pages/PlaybooksView';
 import LoginView from './pages/LoginView';
+
 import QuickAlertModal from './components/QuickAlertModal';
 import CreateIncidentModal from './components/CreateIncidentModal';
 import ManualLogModal from './components/ManualLogModal';
@@ -145,9 +147,14 @@ function AppContent() {
             />
           )}
 
+          {activeTab === 'playbooks' && (
+            <PlaybooksView key={refreshKey} />
+          )}
+
           {activeTab === 'ip_intel' && (
             <IpIntelligenceView key={refreshKey} />
           )}
+
 
           {activeTab === 'threat_intel' && (
             <ThreatIntelView key={refreshKey} />

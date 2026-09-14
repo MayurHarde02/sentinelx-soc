@@ -9,7 +9,8 @@ import {
   Sliders,
   FileBarChart,
   Shield,
-  ClipboardList
+  ClipboardList,
+  Bot
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { id: 'logs',        label: 'Event Logs',         icon: Activity },
   { id: 'alerts',      label: 'Alerts Triage',      icon: AlertOctagon },
   { id: 'incidents',   label: 'Incidents',           icon: ShieldAlert },
+  { id: 'playbooks',   label: 'SOAR Playbooks',     icon: Bot },
   { id: 'ip_intel',   label: 'IP Intelligence',     icon: Globe },
   { id: 'threat_intel',label: 'Threat Intel',        icon: Shield },
   { id: 'simulator',   label: 'Attack Simulator',    icon: Zap },
@@ -24,6 +26,7 @@ const NAV_ITEMS = [
   { id: 'reports',     label: 'Reports & Export',    icon: FileBarChart },
   { id: 'audit',       label: 'Audit Trail',         icon: ClipboardList },
 ];
+
 
 const Sidebar = ({ activeTab, setActiveTab, alertCounts = {}, incidentCounts = {} }) => {
   return (
